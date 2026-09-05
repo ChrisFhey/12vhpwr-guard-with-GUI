@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+guard/venv/
+guard/config.ini
+guard/logs/
+guard/last_shutdown.json
+guard/mitigation.active
+status.json
+status.json.tmp
+pending_settings.json
+pending_settings.json.tmp
+overlay/overlay_position.json
+overlay/12VHPWR Guard Overlay.lnk

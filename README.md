@@ -15,6 +15,12 @@ duration, overlay size, and which readings are shown).</em></p>
 **[Download the latest Windows installer](https://github.com/ChrisFhey/12vhpwr-guard-with-GUI/releases)** -
 see [Installation](#installation).
 
+### About this fork
+
+This is my personal fork of [LunoSama's 12VHPWR Guard](https://github.com/Lunosama/12vhpwr-guard-with-GUI), originally customized for my own setup and shared in case others find it useful.
+
+All credit for the original application goes to LunoSama. My changes primarily focus on usability, packaging, and a few additional improvements.
+
 ## What this is
 
 This project has two parts:

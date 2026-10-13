@@ -4,13 +4,16 @@ A per-pin 12VHPWR current safety monitor and shutdown watchdog for ASUS ROG Astr
 RTX 5090/5080 cards, with a lightweight always-on-top visual overlay.
 
 <p align="center">
-  <img src="screenshots/overlay-minimal.png" alt="12VHPWR Guard overlay showing live per-pin current bars" width="320">
-  <img src="screenshots/overlay-settings.png" alt="12VHPWR Guard overlay with the settings popup open" width="620">
+  <img src="screenshots/overlay.png" alt="12VHPWR Guard overlay showing live per-pin current bars and GPU readings" width="250">
+  <img src="screenshots/overlay-settings.png" alt="12VHPWR Guard settings window" width="352">
 </p>
 
-<p align="center"><em>Left: the overlay with most optional readings hidden. Right: the
-settings popup (size slider, per-reading visibility) next to the full overlay with
-every reading shown - both running live against a real ASUS ROG Astral RTX 5090 OC.</em></p>
+<p align="center"><em>Left: the overlay with every reading shown, running live against a
+real ASUS ROG Astral RTX 5090. Right: the settings window (threshold, sustained
+duration, overlay size, and which readings are shown).</em></p>
+
+**[Download the latest Windows installer](https://github.com/ChrisFhey/12vhpwr-guard-with-GUI/releases)** -
+see [Installation](#installation).
 
 ## What this is
 
@@ -49,13 +52,15 @@ supported PCI subsystem IDs.
 
 Two separate OS processes:
 
-1. **Guard** (`guard/hwinfo_12vhpwr_guard.py`) - runs elevated via Task Scheduler
-   (installed by `guard/install.ps1`). Reads per-pin current directly from the card,
+1. **Guard** (`guard/hwinfo_12vhpwr_guard.py`, `12VHPWR-Guard.exe` when installed) -
+   runs elevated via Task Scheduler (registered by the installer, or by
+   `guard/install.ps1`). Reads per-pin current directly from the card,
    decides thresholds, mitigates or shuts down, and writes a `status.json` snapshot
    to the project root (`C:\ProgramData\12VHPWR Guard` when installed with the setup
    program) every ~0.5s for the overlay to read.
-2. **Overlay** (`overlay/overlay_app.py`) - runs unprivileged, autostarts via a
-   Startup-folder shortcut (installed by `overlay/install_overlay_autostart.ps1`).
+2. **Overlay** (`overlay/overlay_app.py`, `12VHPWR-Guard-Overlay.exe` when installed) -
+   runs unprivileged, autostarts via a Startup-folder shortcut (created by the
+   installer, or by `overlay/install_overlay_autostart.ps1`).
    Polls `status.json`, never touches the GPU or any hardware API directly. Settings
    changes are requested via a small `pending_settings.json` file that the guard
    consumes and applies through the exact same code path the tray menu uses.
@@ -72,18 +77,59 @@ turn it on.
 
 ## Installation
 
-### Windows setup program (recommended)
+### Recommended: Windows installer
 
-Run `12VHPWR-Guard-Setup-<version>.exe` and approve the UAC prompt. It installs
-standalone executables (no Python required) to Program Files, keeps settings and logs
-in `C:\ProgramData\12VHPWR Guard`, registers the elevated guard task, starts the
-overlay unelevated at logon, and handles upgrades (settings preserved, rollback on
-failure) and uninstall from *Installed apps*. See [`installer/README.md`](installer/README.md)
-for how to build it and what it changes.
+You need 64-bit Windows 10 or 11, an administrator account, and a supported card
+(see [Hardware support](#hardware-support)). **Python is not required.**
 
-The script-based options below run from a source checkout instead.
+1. Open the [Releases page](https://github.com/ChrisFhey/12vhpwr-guard-with-GUI/releases)
+   and, under **Assets** of the latest release, download **`12VHPWR-Guard-Setup-*.exe`**
+   (`*` is the version number).
+2. Run it and approve the administrator (UAC) prompt. The installer isn't code-signed,
+   so Windows SmartScreen may warn you: choose **More info → Run anyway**.
+3. Follow the installer. Leave **"Start the overlay automatically at logon"** ticked
+   unless you don't want the overlay window.
+4. On the last page, leave **"Start the overlay now"** ticked and click **Finish**.
 
-### Option A: combined script installer
+The installer sets everything up for you:
+
+- **The guard (watchdog)** is registered as an elevated Task Scheduler task that
+  starts at every logon, and it is started straight away. Look for its tray icon.
+- **The overlay** starts automatically at logon, without administrator rights. If you
+  close it, reopen it from the Start Menu: **12VHPWR Guard Overlay**.
+- Program files go to `C:\Program Files\12VHPWR Guard`; settings and logs are kept in
+  `C:\ProgramData\12VHPWR Guard`.
+
+### Upgrading
+
+Download the newer `12VHPWR-Guard-Setup-*.exe` from the Releases page and run
+it over the existing installation (re-running the same version also works). Your
+settings and logs are kept. The installer briefly stops the guard, replaces the
+program files, and starts exactly one new guard; if anything goes wrong it puts the
+previous version back and restarts it.
+
+**Coming from the script install below?** The installer detects it, takes over its
+settings, stops the old guard, and removes the old overlay's autostart shortcuts. Your
+old project folder is left as it is - just don't run its `install.bat` or
+`uninstall.bat` afterwards, as they manage the same scheduled task.
+
+### Uninstalling
+
+Open **Settings → Apps → Installed apps**, find **12VHPWR Guard**, and choose
+**Uninstall**. This stops the guard and overlay and removes the scheduled task,
+shortcuts and program files. You'll be asked whether to also delete your settings and
+logs; the default is to keep them, so a later reinstall picks them up again. If the
+guard was limiting the GPU when it was stopped, restart Windows to restore normal
+clocks.
+
+Building the installer yourself is covered in [`installer/README.md`](installer/README.md).
+
+### Alternative: script installation (requires Python)
+
+These options run directly from a copy of this repository and need Python 3.10+
+installed and on `PATH`. Use them only instead of the Windows installer, not alongside it.
+
+#### Option A: combined script installer
 
 Double-click **`install.bat`** at the project root and approve the single UAC prompt.
 This installs both pieces in one run:
@@ -105,7 +151,7 @@ root and approve the UAC prompt - it removes the guard's Task Scheduler entry an
 Event Log source, then all three overlay shortcuts and stops any running instance,
 and reports exactly what it verified was actually removed (not just what it attempted).
 
-### Option B: install guard and overlay separately
+#### Option B: install guard and overlay separately
 
 Useful if you only want one piece, or want to reinstall/upgrade just one of them.
 
@@ -149,7 +195,8 @@ Threshold (`threshold_amps`, default 9.5 A) and sustained duration
 (`sustained_seconds_required`, default **10 s** in this fork - upstream ships 15 s) can
 be changed from either the guard's tray icon menu or the overlay's settings popup
 (gear icon). Both apply live, with no restart required, and both warn before accepting
-a value weaker than the default.
+a value weaker than the default. They are stored in `C:\ProgramData\12VHPWR Guard\config.ini`
+with the Windows installer, or `guard\config.ini` with the script install.
 
 For the full detail on severity tiers, mitigation behavior, and HWiNFO fallback
 configuration - none of which changed in this fork - see `guard/README.md`, the

@@ -1,7 +1,7 @@
 # 12VHPWR Guard + Overlay
 
 A per-pin 12VHPWR current safety monitor and shutdown watchdog for ASUS ROG Astral
-RTX 5090/5080 cards, with a lightweight always-on-top visual overlay.
+RTX 5090/5080 cards, with a lightweight overlay window showing live readings.
 
 <p align="center">
   <img src="screenshots/overlay.png" alt="12VHPWR Guard overlay showing live per-pin current bars and GPU readings" width="250">
@@ -19,33 +19,58 @@ see [Installation](#installation).
 
 This is my personal fork of [LunoSama's 12VHPWR Guard](https://github.com/Lunosama/12vhpwr-guard-with-GUI), originally customized for my own setup and shared in case others find it useful.
 
-All credit for the original application goes to LunoSama. My changes primarily focus on usability, packaging, and a few additional improvements.
+The project has three layers of authorship:
+
+- **[humza-khalid](https://github.com/humza-khalid)** created the original safety engine,
+  [`12vhpwr-guard`](https://github.com/humza-khalid/12vhpwr-guard): per-pin current
+  reading, thresholds, GPU mitigation, and emergency shutdown.
+- **[LunoSama](https://github.com/Lunosama)** created
+  [`12vhpwr-guard-with-GUI`](https://github.com/Lunosama/12vhpwr-guard-with-GUI), which
+  added the overlay GUI and the hooks connecting it to the engine. This repository is
+  a fork of that project, and all credit for the original application goes to LunoSama.
+- **My changes** focus on packaging (a standalone Windows installer with upgrades,
+  rollback and migration from the script install), usability (a native window, the
+  project icon), and a few additional improvements such as reconnecting GPU telemetry
+  after driver hiccups.
 
 ## What this is
 
 This project has two parts:
 
 - **`guard/`** - the safety-critical monitoring engine. This is a vendored copy of
-  [`humza-khalid/12vhpwr-guard`](https://github.com/humza-khalid/12vhpwr-guard) (MIT
-  license, see `LICENSE`), with small additive extensions (`telemetry.py`,
-  `status_writer.py`, `settings_bridge.py`, `hwinfo_voltage.py`, and a few hook points
-  in `hwinfo_12vhpwr_guard.py`) to export live GPU telemetry and accept settings
-  changes from the overlay. **The I2C read, threshold math, and shutdown logic are
-  unmodified from upstream.**
-- **`overlay/`** - a new, unprivileged always-on-top window showing color-coded bars
-  for all 6 pins plus GPU power/voltage/clock/VRAM/usage/temperature/name, and a
-  settings popup to edit the threshold, sustained-time, overlay size, and which
-  readings are shown.
+  [`humza-khalid/12vhpwr-guard`](https://github.com/humza-khalid/12vhpwr-guard) v1.3.1
+  (MIT license, see `guard/LICENSE`), with additive extensions (`telemetry.py`,
+  `status_writer.py`, `settings_bridge.py`, `hwinfo_voltage.py`, `app_paths.py`, and
+  hook points in `hwinfo_12vhpwr_guard.py`) to export live GPU telemetry, accept
+  settings changes from the overlay, and store data under ProgramData when installed.
+  What that means for the protection logic:
+  - The I2C sensor code (`astral_i2c.py`) is identical to upstream 1.3.1, and the GPU
+    mitigation code (`gpu_mitigation.py`) differs only in where it stores its
+    crash-recovery marker file.
+  - In `hwinfo_12vhpwr_guard.py` the threshold comparison, tiered response, and
+    shutdown code are unchanged, but the monitor loop around them has hooks: each tick
+    it may apply a threshold/sustained-time change requested by the overlay (through
+    the same setters the tray menu uses) before reading the thresholds, and it writes
+    a status snapshot, including just before a shutdown.
+  - The default sustained window is **10 s instead of upstream's 15 s** (stricter).
+  - Newer upstream releases (1.3.2 and later) are not merged into this repository.
+- **`overlay/`** - an unprivileged window showing color-coded bars for all 6 pins plus
+  GPU power/voltage/clock/VRAM/usage/temperature/name, and a settings popup to edit
+  the threshold, sustained time, overlay size, and which readings are shown. It is a
+  normal native Windows window - title bar, taskbar entry, fixed size, slightly
+  translucent, dark title bar where supported - and is **not** always-on-top, so other
+  windows can cover it. It remembers its position, size, and visible readings. Only the
+  settings popup stays on top while it's open.
 
 **Full credit for the safety engine belongs to [humza-khalid](https://github.com/humza-khalid)
 and the upstream project's contributors** - the I2C protocol reverse-engineering, the
 tiered response ladder, reversible GPU mitigation via NVML, crash recovery, and
-flight-recorder logging are entirely their work. This fork did not write, and does
-not claim credit for, any of it. `guard/README.md` is their original documentation,
-vendored here verbatim so it travels with the code; `guard/LICENSE` is their
-original MIT license text. See `LICENSE` at the project root for the terms this
-fork (the `overlay/` GUI and the additive hooks in `guard/`) is itself distributed
-under.
+flight-recorder logging are entirely their work. Neither LunoSama's project nor this
+fork wrote, or claims credit for, any of it. `guard/README.md` is their original
+documentation, vendored here verbatim so it travels with the code (it describes
+upstream's own install scripts and defaults); `guard/LICENSE` is their original MIT
+license text. See `LICENSE` at the project root for the terms the `overlay/` GUI, the
+additions in `guard/`, and the installer are distributed under.
 
 ## Hardware support
 
@@ -69,7 +94,8 @@ Two separate OS processes:
    installer, or by `overlay/install_overlay_autostart.ps1`).
    Polls `status.json`, never touches the GPU or any hardware API directly. Settings
    changes are requested via a small `pending_settings.json` file that the guard
-   consumes and applies through the exact same code path the tray menu uses.
+   validates and applies through the same setters the tray menu uses (the overlay
+   shows its own "reduced protection" confirmation before sending a weaker value).
 
 Neither process needs the other to be installed to build/run, but the overlay shows
 "Disconnected" and no live data unless the guard is running and writing `status.json`.
@@ -88,11 +114,20 @@ turn it on.
 You need 64-bit Windows 10 or 11, an administrator account, and a supported card
 (see [Hardware support](#hardware-support)). **Python is not required.**
 
+> **Keep the GPU idle while installing or upgrading.** Setup stops the running
+> watchdog for a short time before starting the new one, and the card isn't protected
+> in between. Close games and other GPU-heavy apps first.
+
 1. Open the [Releases page](https://github.com/ChrisFhey/12vhpwr-guard-with-GUI/releases)
    and, under **Assets** of the latest release, download **`12VHPWR-Guard-Setup-*.exe`**
    (`*` is the version number).
 2. Run it and approve the administrator (UAC) prompt. The installer isn't code-signed,
-   so Windows SmartScreen may warn you: choose **More info → Run anyway**.
+   so Windows SmartScreen may show "Windows protected your PC". Only continue if you
+   downloaded the file yourself from the Releases page above
+   (`github.com/ChrisFhey/12vhpwr-guard-with-GUI`); if it came from anywhere else, delete
+   it. If the release notes list a SHA256 checksum, you can compare it first with
+   `Get-FileHash .\12VHPWR-Guard-Setup-*.exe` in PowerShell. Then choose
+   **More info → Run anyway**.
 3. Follow the installer. Leave **"Start the overlay automatically at logon"** ticked
    unless you don't want the overlay window.
 4. On the last page, leave **"Start the overlay now"** ticked and click **Finish**.
@@ -106,13 +141,22 @@ The installer sets everything up for you:
 - Program files go to `C:\Program Files\12VHPWR Guard`; settings and logs are kept in
   `C:\ProgramData\12VHPWR Guard`.
 
+**Afterwards, check that protection is live:** the guard's tray icon is present, and the
+overlay shows changing per-pin readings for all six pins rather than "Disconnected".
+Do the same after every upgrade.
+
 ### Upgrading
 
 Download the newer `12VHPWR-Guard-Setup-*.exe` from the Releases page and run
-it over the existing installation (re-running the same version also works). Your
-settings and logs are kept. The installer briefly stops the guard, replaces the
-program files, and starts exactly one new guard; if anything goes wrong it puts the
-previous version back and restarts it.
+it over the existing installation (re-running the same version also works), with the
+GPU idle as described above. Your settings and logs are kept. The installer stops the
+guard, replaces the program files, starts the new guard, and checks that exactly one
+instance keeps running.
+
+If that fails, setup **tries** to recover: it restores the previous program files and
+scheduled task and restarts the previous guard, and shows an error if that recovery
+didn't work either. Recovery isn't guaranteed, so always check that protection is live
+afterwards; the details are logged in `C:\ProgramData\12VHPWR Guard\setup.log`.
 
 **Coming from the script install below?** The installer detects it, takes over its
 settings, stops the old guard, and removes the old overlay's autostart shortcuts. Your
@@ -205,7 +249,7 @@ a value weaker than the default. They are stored in `C:\ProgramData\12VHPWR Guar
 with the Windows installer, or `guard\config.ini` with the script install.
 
 For the full detail on severity tiers, mitigation behavior, and HWiNFO fallback
-configuration - none of which changed in this fork - see `guard/README.md`, the
+configuration - whose logic comes unchanged from upstream - see `guard/README.md`, the
 original upstream documentation vendored verbatim in this repo, or the
 [upstream project itself](https://github.com/humza-khalid/12vhpwr-guard).
 
@@ -240,6 +284,11 @@ reverts to `N/A` - the guard's own protection logic never depends on this value 
 all, so there's no risk in leaving it disabled.
 
 ## Resource usage
+
+> **Historical measurements.** The figures in this section and the game benchmark
+> below were recorded with the earlier script-based version (Python + `pythonw.exe`).
+> They have not been re-measured for the PyInstaller executables used by the Windows
+> installer, whose memory use and startup in particular may differ.
 
 Measured on a 24-logical-core system (Ryzen 9 7900) with an RTX 5090, both processes
 running simultaneously and actively polling/writing at their normal ~0.5s (guard) and
@@ -279,7 +328,7 @@ noise (a background hitch, shader compile, or similar), not a sustained effect -
 did not appear in the Low 5th percentile, which would have been affected by any real,
 repeated overlay interference.
 
-Because the overlay is a plain always-on-top desktop window (no DLL injection, no
+Because the overlay is a plain desktop window (no DLL injection, no
 render-thread hooking, unlike RTSS/Discord-style in-game overlays), this result lines
 up with what its architecture predicts: it draws to its own separate window and never
 touches the game process at all.

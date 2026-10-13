@@ -11,3 +11,11 @@ pending_settings.json
 pending_settings.json.tmp
 overlay/overlay_position.json
 overlay/12VHPWR Guard Overlay.lnk
+guard/last_shutdown.json.tmp
+overlay/overlay_position.json.tmp
+venv/
+.venv/
+*.log
+
+# Personal overlay icon (derived from third-party artwork; never commit)
+overlay/astral_guard.ico

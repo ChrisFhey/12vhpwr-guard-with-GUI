@@ -19,3 +19,7 @@ venv/
 
 # Personal overlay icon (derived from third-party artwork; never commit)
 overlay/astral_guard.ico
+
+# Installer build output
+installer/build/
+installer/Output/

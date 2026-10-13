@@ -1,5 +1,9 @@
 """
-Always-on-top, borderless overlay showing live 12VHPWR per-pin current and GPU stats.
+Overlay window showing live 12VHPWR per-pin current and GPU stats.
+
+Uses native Windows decorations (title bar, taskbar entry, dark title bar where
+supported), is not always-on-top, and has a fixed size. An optional astral_guard.ico
+next to this file is used as the window icon when present.
 
 Runs unprivileged, as a normal user process. Never touches NVAPI/NVML/I2C directly -
 all data comes from status.json, written by the elevated guard process. This means a
@@ -10,6 +14,7 @@ Stdlib only (tkinter + json + os + time): no extra install needed for the overla
 itself, matching the "super lightweight" requirement.
 """
 
+import ctypes
 import json
 import os
 import sys
@@ -26,6 +31,7 @@ STALE_AFTER_SEC = 2.0           # guard writes every ~0.5s; 2s of silence = disc
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # project root
 STATUS_PATH = os.path.join(BASE_DIR, "status.json")
 POSITION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overlay_position.json")
+ICON_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "astral_guard.ico")  # optional, not shipped
 
 BG_COLOR = "#141414"
 FG_COLOR = "#eaeaea"
@@ -115,13 +121,31 @@ def save_ui_state(x: int, y: int, scale: float, visible_stats: dict) -> None:
 class OverlayApp:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
+        self.root.title("12V Guard")
+        if os.path.isfile(ICON_FILE):
+            try:
+                self.root.iconbitmap(ICON_FILE)
+            except tk.TclError:
+                pass  # unreadable/invalid icon; keep the default Tk icon
+        self.root.resizable(False, False)
+        self.root.overrideredirect(False)
+        self.root.attributes("-topmost", False)
         try:
             self.root.attributes("-alpha", WINDOW_ALPHA)
         except tk.TclError:
             pass  # some environments don't support per-window alpha; not fatal
         self.root.configure(bg=BG_COLOR)
+        # Use the Windows dark title bar (attribute 20 = DWMWA_USE_IMMERSIVE_DARK_MODE,
+        # Windows 10 20H1+/11). Best-effort: older builds just keep the light title bar.
+        try:
+            self.root.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            dark = ctypes.c_int(1)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, 20, ctypes.byref(dark), ctypes.sizeof(dark)
+            )
+        except (OSError, AttributeError):
+            pass
 
         x, y, scale, visible_stats = load_ui_state()
         self.scale = scale
@@ -194,12 +218,6 @@ class OverlayApp:
         )
         settings_btn.pack(side="right", padx=(6, 0))
         settings_btn.bind("<Button-1>", self._open_settings)
-
-        close_btn = tk.Label(
-            header, text="✕", fg=DIM_COLOR, bg=BG_COLOR, cursor="hand2", font=icon_font,
-        )
-        close_btn.pack(side="right")
-        close_btn.bind("<Button-1>", lambda _e: self.root.destroy())
 
         self.gpu_name_label = tk.Label(
             outer, text="Waiting for guard...", fg=DIM_COLOR, bg=BG_COLOR, font=label_font,

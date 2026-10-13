@@ -147,13 +147,16 @@ begin
     if RunHelper(ExpandConstant('{tmp}'), 'Configure') then
     begin
       InstallSucceeded := True;
-      RunHelper(ExpandConstant('{tmp}'), 'Cleanup');
+      if not RunHelper(ExpandConstant('{tmp}'), 'Cleanup') then
+        SuppressibleMsgBox('The new guard is running, but some shortcuts or the overlay of the old ' +
+          'script-based install could not be removed. Details: ' + HelperLog(), mbInformation, MB_OK, IDOK);
     end
     else
     begin
+      SuppressibleMsgBox('The new guard could not be registered or did not keep running. Setup will now ' +
+        'put the previous installation back, if there was one. Details: ' + HelperLog(),
+        mbCriticalError, MB_OK, IDOK);
       RestorePrevious();
-      SuppressibleMsgBox('Configuring the guard failed, so the previous installation (if any) was ' +
-        'restored and restarted. Details: ' + HelperLog(), mbCriticalError, MB_OK, IDOK);
     end;
   end;
 end;

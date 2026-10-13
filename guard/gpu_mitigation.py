@@ -36,6 +36,8 @@ import os
 import time
 from typing import Optional, Tuple
 
+import app_paths
+
 # ------------------------------------------------------------------ NVML ids
 NVML_SUCCESS = 0
 NVML_ERROR_INVALID_ARGUMENT = 2
@@ -56,7 +58,7 @@ CLOCK_FLOOR_LADDER = (500, 700, 1000)
 
 # Written next to config.ini while mitigation is active, deleted on release.
 MARKER_NAME = "mitigation.active"
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = app_paths.DATA_DIR
 MARKER_PATH = os.path.join(BASE_DIR, MARKER_NAME)
 
 

@@ -3,7 +3,7 @@ Overlay window showing live 12VHPWR per-pin current and GPU stats.
 
 Uses native Windows decorations (title bar, taskbar entry, dark title bar where
 supported), is not always-on-top, and has a fixed size. An optional astral_guard.ico
-next to this file is used as the window icon when present.
+(see overlay_paths.ICON_FILE) is used as the window icon when present.
 
 Runs unprivileged, as a normal user process. Never touches NVAPI/NVML/I2C directly -
 all data comes from status.json, written by the elevated guard process. This means a
@@ -25,13 +25,12 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from overlay_theme import bar_color, bar_fill_fraction
 from overlay_settings import SettingsPopup, DEFAULT_THRESHOLD_AMPS, DEFAULT_SUSTAINED_SECONDS_REQUIRED
+from overlay_paths import STATUS_PATH, POSITION_FILE, ICON_FILE
 
 POLL_INTERVAL_MS = 200          # overlay refresh rate (5 Hz is plenty for a bar chart)
 STALE_AFTER_SEC = 2.0           # guard writes every ~0.5s; 2s of silence = disconnected
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # project root
-STATUS_PATH = os.path.join(BASE_DIR, "status.json")
-POSITION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overlay_position.json")
-ICON_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "astral_guard.ico")  # optional, not shipped
+SINGLE_INSTANCE_MUTEX = r"Local\12VHPWR_Guard_Overlay_SingleInstance"
+ERROR_ALREADY_EXISTS = 183
 
 BG_COLOR = "#141414"
 FG_COLOR = "#eaeaea"
@@ -111,6 +110,7 @@ def load_ui_state():
 def save_ui_state(x: int, y: int, scale: float, visible_stats: dict) -> None:
     tmp = POSITION_FILE + ".tmp"
     try:
+        os.makedirs(os.path.dirname(POSITION_FILE), exist_ok=True)
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"x": x, "y": y, "scale": scale, "visible_stats": visible_stats}, f)
         os.replace(tmp, POSITION_FILE)
@@ -298,7 +298,7 @@ class OverlayApp:
         if self.settings_popup is not None and self.settings_popup.is_open():
             self.settings_popup.focus()
             return
-        self.settings_popup = SettingsPopup(self.root, base_dir=BASE_DIR, overlay_app=self)
+        self.settings_popup = SettingsPopup(self.root, overlay_app=self)
 
     # -- polling / rendering --------------------------------------------
     def _poll(self) -> None:
@@ -400,7 +400,27 @@ class OverlayApp:
         self.root.mainloop()
 
 
+# Held for the process lifetime; Windows releases the mutex when the process exits.
+_single_instance_handle = None
+
+
+def acquire_single_instance() -> bool:
+    """False when another overlay already runs in this logon session (e.g. the Start
+    Menu shortcut clicked while the autostarted copy is open)."""
+    global _single_instance_handle
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW.restype = ctypes.c_void_p
+        ctypes.set_last_error(0)
+        _single_instance_handle = kernel32.CreateMutexW(None, False, SINGLE_INSTANCE_MUTEX)
+        return ctypes.get_last_error() != ERROR_ALREADY_EXISTS
+    except Exception:
+        return True  # never refuse to start just because the check itself failed
+
+
 def main() -> None:
+    if not acquire_single_instance():
+        return
     app = OverlayApp()
     # Save position on release, not just during drag, so a click without a drag
     # doesn't spuriously rewrite the file every poll tick.

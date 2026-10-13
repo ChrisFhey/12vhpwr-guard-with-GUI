@@ -52,7 +52,8 @@ Two separate OS processes:
 1. **Guard** (`guard/hwinfo_12vhpwr_guard.py`) - runs elevated via Task Scheduler
    (installed by `guard/install.ps1`). Reads per-pin current directly from the card,
    decides thresholds, mitigates or shuts down, and writes a `status.json` snapshot
-   to the project root every ~0.5s for the overlay to read.
+   to the project root (`C:\ProgramData\12VHPWR Guard` when installed with the setup
+   program) every ~0.5s for the overlay to read.
 2. **Overlay** (`overlay/overlay_app.py`) - runs unprivileged, autostarts via a
    Startup-folder shortcut (installed by `overlay/install_overlay_autostart.ps1`).
    Polls `status.json`, never touches the GPU or any hardware API directly. Settings
@@ -71,7 +72,18 @@ turn it on.
 
 ## Installation
 
-### Option A: combined installer (recommended)
+### Windows setup program (recommended)
+
+Run `12VHPWR-Guard-Setup-<version>.exe` and approve the UAC prompt. It installs
+standalone executables (no Python required) to Program Files, keeps settings and logs
+in `C:\ProgramData\12VHPWR Guard`, registers the elevated guard task, starts the
+overlay unelevated at logon, and handles upgrades (settings preserved, rollback on
+failure) and uninstall from *Installed apps*. See [`installer/README.md`](installer/README.md)
+for how to build it and what it changes.
+
+The script-based options below run from a source checkout instead.
+
+### Option A: combined script installer
 
 Double-click **`install.bat`** at the project root and approve the single UAC prompt.
 This installs both pieces in one run:

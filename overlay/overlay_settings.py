@@ -21,6 +21,8 @@ import tkinter as tk
 from tkinter import messagebox
 from typing import Optional
 
+from overlay_paths import GUARD_CONFIG_PATH, REQUESTS_DIR
+
 # Mirrors guard/hwinfo_12vhpwr_guard.py's DEFAULT_THRESHOLD_AMPS /
 # DEFAULT_SUSTAINED_SECONDS_REQUIRED. Kept as plain constants here (not imported)
 # because the overlay process must not import the guard's module - that module has
@@ -30,14 +32,13 @@ DEFAULT_THRESHOLD_AMPS = 9.5
 DEFAULT_SUSTAINED_SECONDS_REQUIRED = 10.0
 
 PENDING_FILENAME = "pending_settings.json"
-CONFIG_FILENAME = os.path.join("guard", "config.ini")
 
 
-def _read_current_values(base_dir: str):
+def _read_current_values():
     """Best-effort read of the guard's config.ini for display only (never written
     to directly - see module docstring). Falls back to defaults if unreadable."""
     import configparser
-    path = os.path.join(base_dir, CONFIG_FILENAME)
+    path = GUARD_CONFIG_PATH
     threshold = DEFAULT_THRESHOLD_AMPS
     sustained = DEFAULT_SUSTAINED_SECONDS_REQUIRED
     try:
@@ -50,8 +51,8 @@ def _read_current_values(base_dir: str):
     return threshold, sustained
 
 
-def _write_pending(base_dir: str, threshold: Optional[float], sustained: Optional[float]) -> None:
-    path = os.path.join(base_dir, PENDING_FILENAME)
+def _write_pending(threshold: Optional[float], sustained: Optional[float]) -> None:
+    path = os.path.join(REQUESTS_DIR, PENDING_FILENAME)
     tmp = path + ".tmp"
     payload = {}
     if threshold is not None:
@@ -66,12 +67,11 @@ def _write_pending(base_dir: str, threshold: Optional[float], sustained: Optiona
 
 
 class SettingsPopup:
-    def __init__(self, parent: tk.Tk, base_dir: str, overlay_app=None):
+    def __init__(self, parent: tk.Tk, overlay_app=None):
         """overlay_app: the OverlayApp instance, used only for the live size slider
         (calls overlay_app.set_scale()). Optional so this module stays testable/usable
         without a live overlay window if ever needed - the threshold/sustained fields
         never depended on it."""
-        self.base_dir = base_dir
         self.overlay_app = overlay_app
         self.window = tk.Toplevel(parent)
         self.window.title("12VHPWR Guard Settings")
@@ -79,7 +79,7 @@ class SettingsPopup:
         self.window.resizable(False, False)
         self.window.configure(padx=16, pady=14)
 
-        current_threshold, current_sustained = _read_current_values(base_dir)
+        current_threshold, current_sustained = _read_current_values()
 
         tk.Label(self.window, text="Overcurrent threshold (A):").grid(row=0, column=0, sticky="w")
         self.threshold_var = tk.StringVar(value=f"{current_threshold:.2f}")
@@ -176,7 +176,7 @@ class SettingsPopup:
             return
 
         try:
-            _write_pending(self.base_dir, new_threshold, new_sustained)
+            _write_pending(new_threshold, new_sustained)
         except Exception as ex:
             messagebox.showerror("Could not apply", f"Failed to write settings request: {ex}",
                                   parent=self.window)

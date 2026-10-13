@@ -115,26 +115,33 @@ SHUTDOWN_FORCE_CLOSE_APPS = True
 CLEAR_HYSTERESIS_AMPS = 0.2
 CLEAR_STABLE_SECONDS = 1.0
 
-# Logs
+# Writable data: next to this script in a source checkout, %ProgramData% in the
+# installed build (see app_paths.py).
+import app_paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_DIR = os.path.join(BASE_DIR, "logs")
+DATA_DIR = app_paths.DATA_DIR
+
+# Logs
+LOG_DIR = os.path.join(DATA_DIR, "logs")
 LOG_PATH = os.path.join(LOG_DIR, "12vhpwr_guard.log")
 LOG_MAX_BYTES = 2 * 1024 * 1024
 
-# status.json / pending_settings.json live at the project root (one level up from
-# guard/), not in BASE_DIR - that's where the overlay (overlay/overlay_app.py) looks
-# for them, since overlay/ and guard/ are sibling folders under the project root.
-OVERLAY_SHARED_DIR = os.path.dirname(BASE_DIR)
+# status.json lives where the overlay (overlay/overlay_app.py) looks for it: the
+# project root in a source checkout (overlay/ and guard/ are siblings), the data
+# directory when installed. pending_settings.json is read from OVERLAY_REQUESTS_DIR,
+# the same folder in a checkout and a user-writable subfolder when installed.
+OVERLAY_SHARED_DIR = app_paths.SHARED_DIR
+OVERLAY_REQUESTS_DIR = app_paths.REQUESTS_DIR
 LOG_BACKUP_COUNT = 5
 
 # Config file
-CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
+CONFIG_PATH = os.path.join(DATA_DIR, "config.ini")
 
 # Written when the guard fires an emergency shutdown, shown and removed at the next
 # start. Without it, a shutdown that happens while the user is away is a mystery:
 # the machine is just off, Windows gets the blame, and the bad cable gets plugged
 # straight back into a heavy load.
-LAST_SHUTDOWN_PATH = os.path.join(BASE_DIR, "last_shutdown.json")
+LAST_SHUTDOWN_PATH = os.path.join(DATA_DIR, "last_shutdown.json")
 
 # Flight recorder: the last ~minute of per-pin samples, kept in memory only and
 # written to logs/ when the guard acts. The dump is the evidence for a bug report
@@ -1238,7 +1245,7 @@ class TieredResponse:
 # =========================
 # This only flips the Enabled flag on the task the installer already created. It
 # deliberately does not create the task: the trigger, principal and restart
-# settings live in install.ps1, and a second copy here would drift out of sync
+# settings live in guard_task.ps1, and a second copy here would drift out of sync
 # with it the first time either side changed.
 
 TASK_NAME = "12VHPWR Guard"
@@ -1819,7 +1826,7 @@ def monitor_loop(stop_event: threading.Event, logger: logging.Logger):
                 # config for this tick - so the tick that applies a change also acts on
                 # it immediately rather than one tick later.
                 if HAVE_SETTINGS_BRIDGE:
-                    applied = consume_pending_settings(OVERLAY_SHARED_DIR, logger)
+                    applied = consume_pending_settings(OVERLAY_REQUESTS_DIR, logger)
                     if applied is not None:
                         cur_threshold, cur_sustained = get_config_values()
                         new_threshold = applied["threshold_amps"] if applied["threshold_amps"] is not None else cur_threshold

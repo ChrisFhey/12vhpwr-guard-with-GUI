@@ -1514,23 +1514,36 @@ def monitor_loop(stop_event: threading.Event, logger: logging.Logger):
 
     # --- overlay telemetry: independent of mitigation, best-effort, never required ---
     telemetry_reader = None
-    telemetry_connect_tried = False
+    telemetry_failures = 0
+    # Next time a connect may be attempted. Failed connects (at startup, or after a
+    # forced reconnect, e.g. mid driver reset) are retried rather than leaving
+    # telemetry dark for the rest of the session.
+    telemetry_retry_at = 0.0
+    telemetry_unavailable_logged = False
+    TELEMETRY_FAILURE_LIMIT = 10
+    TELEMETRY_RETRY_SEC = 30.0
 
     def ensure_telemetry():
-        """Connect NVML for extra stats (power/temp/clock/VRAM/usage/name) the first
-        time it is needed. Deliberately separate from ensure_mitigator(): reading
-        telemetry must work (or fail) independently of whether tiered mitigation is
-        enabled, available, or elevated."""
-        nonlocal telemetry_reader, telemetry_connect_tried
+        """Connect NVML for extra stats (power/temp/clock/VRAM/usage/name) when
+        needed, retrying failed connects every TELEMETRY_RETRY_SEC. Deliberately
+        separate from ensure_mitigator(): reading telemetry must work (or fail)
+        independently of whether tiered mitigation is enabled, available, or elevated."""
+        nonlocal telemetry_reader, telemetry_retry_at, telemetry_unavailable_logged
         if not HAVE_TELEMETRY:
             return None
-        if telemetry_reader is None and not telemetry_connect_tried:
-            telemetry_connect_tried = True
+        if telemetry_reader is None and time.time() >= telemetry_retry_at:
             candidate = TelemetryReader()
             if candidate.connect(getattr(backend, "subsystem_id", None)):
                 telemetry_reader = candidate
+                if telemetry_unavailable_logged:
+                    logger.info("Overlay telemetry connected.")
+                    telemetry_unavailable_logged = False
             else:
-                logger.info("Overlay telemetry (power/temp/clock/VRAM/usage) unavailable.")
+                telemetry_retry_at = time.time() + TELEMETRY_RETRY_SEC
+                if not telemetry_unavailable_logged:
+                    logger.info("Overlay telemetry (power/temp/clock/VRAM/usage) unavailable; "
+                                f"retrying every {TELEMETRY_RETRY_SEC:.0f}s.")
+                    telemetry_unavailable_logged = True
         return telemetry_reader
 
     # --- core voltage: separate, HWiNFO-backed, independently optional ---
@@ -1581,6 +1594,7 @@ def monitor_loop(stop_event: threading.Event, logger: logging.Logger):
         backend.read_pins() result rather than fished out of the tray's `shared`
         dict, which only ever tracked the single worst pin, not all six plus
         voltages."""
+        nonlocal telemetry_reader, telemetry_failures, telemetry_retry_at
         if not HAVE_STATUS_WRITER:
             return
         try:
@@ -1588,6 +1602,21 @@ def monitor_loop(stop_event: threading.Event, logger: logging.Logger):
             telemetry_data = reader.snapshot(read_core_voltage()) if reader is not None else {
                 "core_voltage_v": read_core_voltage()
             }
+
+            if reader is not None:
+                fields = ("power_w", "temp_c", "clock_mhz", "gpu_util_pct")
+
+                if all(telemetry_data.get(field) is None for field in fields):
+                    telemetry_failures += 1
+                else:
+                    telemetry_failures = 0
+
+                if telemetry_failures >= TELEMETRY_FAILURE_LIMIT:
+                    logger.warning("Overlay telemetry failed repeatedly; reconnecting NVML.")
+                    reader.close()
+                    telemetry_reader = None
+                    telemetry_failures = 0
+                    telemetry_retry_at = time.time()  # retry on the next tick
 
             st = get_state()
             threshold_amps_now, sustained_now = get_config_values()

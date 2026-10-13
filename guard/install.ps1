@@ -24,7 +24,6 @@ $ConfigPath = Join-Path $BaseDir "config.ini"
 $LogsDir = Join-Path $BaseDir "logs"
 
 $TaskName = "12VHPWR Guard"
-$EventSource = "12VHPWR Guard"
 
 if (!(Test-Path $ScriptPath)) { Write-Err "Missing script."; exit 1 }
 
@@ -59,39 +58,17 @@ if (!(Test-Path $PyExe)) {
 
 try { & $PyExe -m pywin32_postinstall -install } catch {}
 
-try {
-    if (-not [System.Diagnostics.EventLog]::SourceExists($EventSource)) {
-        New-EventLog -LogName Application -Source $EventSource
-    }
-} catch {}
+# Task and Event Log definitions are shared with the packaged installer.
+. (Join-Path $BaseDir "guard_task.ps1")
 
-# Upgrades: a still-running guard would keep the OLD code alive and hold the
-# single-instance mutex against the new one, so the upgrade would not take effect
-# until the next reboot. Stop it first; on a fresh install this is a no-op.
-$Existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-if ($Existing) {
+Register-GuardEventSource
+
+if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     Write-Info "Existing install found - stopping the running guard to upgrade it."
-    try { Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue } catch {}
 }
 
-try {
-    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
-} catch {}
-
 $UserId = "$env:USERDOMAIN\$env:USERNAME"
-$Action = New-ScheduledTaskAction -Execute $PywExe -Argument "`"$ScriptPath`"" -WorkingDirectory $BaseDir
-$Trigger = New-ScheduledTaskTrigger -AtLogOn -User $UserId
-$Principal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Highest
-# RestartCount is deliberately high: a watchdog that gives up after a few crashes
-# stops protecting the card exactly when something is already going wrong.
-$Settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
-    -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
-
-# Without this the task defaults to a 72-hour limit and Task Scheduler kills the guard
-# after 3 days of uptime. A time-limit stop is not a "failure", so RestartCount never fires.
-$Settings.ExecutionTimeLimit = "PT0S"
-
-Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings | Out-Null
+Register-GuardTask -Execute $PywExe -Argument "`"$ScriptPath`"" -WorkingDirectory $BaseDir -UserId $UserId
 
 $startNow = Read-Host "Start 12VHPWR Guard now? (y/N)"
 if ($startNow -match '^(y|yes)$') {

@@ -1245,7 +1245,7 @@ class TieredResponse:
 # =========================
 # This only flips the Enabled flag on the task the installer already created. It
 # deliberately does not create the task: the trigger, principal and restart
-# settings live in install.ps1, and a second copy here would drift out of sync
+# settings live in guard_task.ps1, and a second copy here would drift out of sync
 # with it the first time either side changed.
 
 TASK_NAME = "12VHPWR Guard"

@@ -4,7 +4,8 @@
 # Task Scheduler, Event Log and icacls are mocked, so the real guard task is never
 # touched. Processes are real dummies (python sleeping at fake script-install paths,
 # a copy of ping.exe as the new guard) under %TEMP%\12vg-migtest; shortcut folders
-# are test folders too.
+# are test folders too. -Helper runs the tests against another setup_helper.ps1.
+param([string]$Helper)
 $ErrorActionPreference = "Stop"
 if (([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw "Refusing to run elevated" }
 
@@ -14,7 +15,8 @@ if (!(Test-Path $py)) { throw "pythonw.exe not found (needs the py launcher)" }
 $t = Join-Path $env:TEMP "12vg-migtest"
 if (Test-Path $t) { Remove-Item $t -Recurse -Force }
 $helperDir = Join-Path $t "helper"; New-Item -ItemType Directory -Force $helperDir | Out-Null
-Copy-Item "$repo\installer\setup_helper.ps1", "$repo\guard\guard_task.ps1" $helperDir
+if (-not $Helper) { $Helper = "$repo\installer\setup_helper.ps1" }
+Copy-Item $Helper "$helperDir\setup_helper.ps1"; Copy-Item "$repo\guard\guard_task.ps1" $helperDir
 $inst = Join-Path $t "Program Files\12VHPWR Guard"; $data = Join-Path $t "ProgramData\12VHPWR Guard"
 $newExe = Join-Path $inst "guard\12VHPWR-Guard.exe"
 
@@ -45,6 +47,15 @@ New-Lnk "$scStartup\Renamed old overlay.lnk" $py "`"$legacyOverlay`""
 New-Lnk "$scStartup\Decoy bak.lnk" $py "`"$legacyOverlay.bak`""
 New-Lnk "$scStartup\Other python tool.lnk" $py "`"$unrelatedScript`""
 New-Lnk "$scPrograms\New overlay.lnk" (Join-Path $inst "overlay\12VHPWR-Guard-Overlay.exe") ""
+# Regression: a shortcut with no TargetPath (like the shell's "File Explorer.lnk") and
+# an unreadable one aborted the scan; this old-overlay shortcut sorts after them.
+$emptyTarget = [byte[]](@(0x4C,0,0,0, 0x01,0x14,0x02,0,0,0,0,0,0xC0,0,0,0,0,0,0,0x46) + @(0) * 56 + @(0,0,0,0))
+$emptyTarget[60] = 1   # ShowCommand = SW_SHOWNORMAL; no target ID list, no link info
+[IO.File]::WriteAllBytes("$scPrograms\File Explorer.lnk", $emptyTarget)
+[IO.File]::WriteAllBytes("$scPrograms\Broken.lnk", [byte[]](1..40))
+New-Lnk "$scPrograms\Zz old overlay.lnk" $py "`"$legacyOverlay`""
+if ($shell.CreateShortcut("$scPrograms\File Explorer.lnk").TargetPath) { throw "test shortcut should have an empty target" }
+function Remove-Retry($path) { for ($i = 0; $i -lt 20; $i++) { try { Remove-Item $path -Recurse -Force; return } catch { Start-Sleep -Milliseconds 250 } }; Remove-Item $path -Recurse -Force }
 
 # ---- Mocks (module first: its commands are functions that would overwrite mocks)
 Import-Module ScheduledTasks
@@ -162,8 +173,34 @@ try {
     Check (-not (Alive $oldOverlay)) "old overlay stopped"
     Check (-not (Test-Path "$scStartup\12VHPWR Guard Overlay.lnk") -and -not (Test-Path "$scPrograms\12VHPWR Guard Overlay.lnk") -and -not (Test-Path "$scStartup\Renamed old overlay.lnk")) "old overlay shortcuts removed (matched by target)"
     Check ((Test-Path "$scStartup\Decoy bak.lnk") -and (Test-Path "$scStartup\Other python tool.lnk") -and (Test-Path "$scPrograms\New overlay.lnk")) "unrelated shortcuts kept"
+    Check (-not (Test-Path "$scPrograms\Zz old overlay.lnk")) "scan continued past empty-target and unreadable shortcuts"
+    Check ((Test-Path "$scPrograms\File Explorer.lnk") -and (Test-Path "$scPrograms\Broken.lnk")) "empty-target and unreadable shortcuts kept"
     Check (-not (Test-Path "$data\backup")) "backup removed"
     Check ((Alive $bystanders[0]) -and (Alive $bystanders[1])) "unrelated python still untouched"
+
+    "== 4b. Same-version in-place reinstall over the installed build"
+    "[Settings]`nthreshold_amps = 9.0`nsustained_seconds_required = 15" | Set-Content "$data\config.ini"
+    "{`"locked`": true}" | Set-Content "$data\mitigation.active"
+    $cfgHash = (Get-FileHash "$data\config.ini").Hash
+    $overlayExe = Join-Path $inst "overlay\12VHPWR-Guard-Overlay.exe"
+    Copy-Item "$env:SystemRoot\System32\PING.EXE" $overlayExe
+    $ov = Start-Process $overlayExe -ArgumentList "-n 600 127.0.0.1" -WindowStyle Hidden -PassThru
+    $oldGuard = $global:taskProc.Id
+    Run Prepare
+    Check (-not (Alive $oldGuard) -and -not (Alive $ov.Id)) "running guard and overlay stopped"
+    Check (-not (Test-Path "$data\backup\legacy.json")) "not mistaken for a script install"
+    Check ((Test-Path "$data\backup\complete") -and (Test-Path "$data\backup\task.xml")) "binaries and task backed up"
+    # What Inno does next: [InstallDelete] the PyInstaller folders, copy the new build.
+    Remove-Retry "$inst\guard"; Remove-Retry "$inst\overlay"
+    New-Item -ItemType Directory -Force (Split-Path $newExe), (Split-Path $overlayExe) | Out-Null
+    Copy-Item "$env:SystemRoot\System32\PING.EXE" $newExe; Copy-Item "$env:SystemRoot\System32\PING.EXE" $overlayExe
+    Run Configure
+    Check ((GuardExes).Count -eq 1 -and $global:task.Execute -eq $newExe -and $global:taskProc.Id -ne $oldGuard) "restarted as exactly one new guard"
+    Run Cleanup
+    Check ((Get-FileHash "$data\config.ini").Hash -eq $cfgHash) "config preserved byte-for-byte"
+    Check (Test-Path "$data\mitigation.active") "mitigation recovery state preserved"
+    Check (-not (Test-Path "$data\backup")) "backup removed"
+    Remove-Item "$data\mitigation.active"
 
     "== 5. Upgrade of the installed version fails -> files and task restored"
     Run Prepare

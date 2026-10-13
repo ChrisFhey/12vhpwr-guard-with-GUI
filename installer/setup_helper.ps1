@@ -259,8 +259,11 @@ function Remove-LegacyShortcuts($Legacy) {
     $failed = @()
     foreach ($dir in Get-ShortcutDirs) {
         foreach ($lnk in @(Get-ChildItem -Path $dir -Filter *.lnk -File -ErrorAction SilentlyContinue)) {
-            $sc = $shell.CreateShortcut($lnk.FullName)
-            if ((Split-Path -Leaf $sc.TargetPath) -notmatch '^pythonw?\.exe$') { continue }
+            # Shell-namespace and MSI-advertised shortcuts (e.g. "File Explorer.lnk")
+            # have no TargetPath, and a damaged .lnk cannot be read at all; neither is
+            # ours, so skip it rather than abort the scan.
+            try { $sc = $shell.CreateShortcut($lnk.FullName) } catch { continue }
+            if ([IO.Path]::GetFileName("$($sc.TargetPath)") -notmatch '^pythonw?\.exe$') { continue }
             if (-not (Test-HasPathArg $sc.Arguments $Legacy.OverlayScript)) { continue }
             try {
                 Remove-Item $lnk.FullName -Force

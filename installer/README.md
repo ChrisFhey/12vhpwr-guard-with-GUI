@@ -52,10 +52,20 @@ it can write its data folder and apply GPU mitigation.
 
 ## Migrating from the script install
 
-The installer replaces the `12VHPWR Guard` task and imports `guard\config.ini` from
-the old location if no installed config exists yet. Afterwards run
-`overlay\overlay_uninstaller.bat` from the old checkout to remove its per-user overlay
-shortcuts, otherwise the old overlay also starts at logon.
+Setup detects a script install from the `12VHPWR Guard` task and:
+
+- backs up the task definition, imports `guard\config.ini` (if no installed config
+  exists yet) and, after the old guard has exited, its `mitigation.active` /
+  `last_shutdown.json` crash-recovery state;
+- stops the old guard and waits until its venv launcher and interpreter have both
+  exited (only processes running that exact script, and their children);
+- registers the new task and checks exactly one new guard keeps running;
+- only then removes the old overlay's Startup/Start Menu shortcuts (matched by their
+  `overlay_app.py` target) and stops the old overlay.
+
+If anything fails, the old task is re-registered from the backup and its guard
+restarted. The old checkout itself is never modified. Afterwards, don't run its
+`install.bat`/`uninstall.bat`: they use the same task name.
 
 ## Releasing a new version
 

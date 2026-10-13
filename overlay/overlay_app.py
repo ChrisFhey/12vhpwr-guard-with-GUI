@@ -2,8 +2,9 @@
 Overlay window showing live 12VHPWR per-pin current and GPU stats.
 
 Uses native Windows decorations (title bar, taskbar entry, dark title bar where
-supported), is not always-on-top, and has a fixed size. An optional astral_guard.ico
-(see overlay_paths.ICON_FILE) is used as the window icon when present.
+supported), is not always-on-top, and has a fixed size. The window icon is the
+shipped astral_guard_public.ico, or an optional personal astral_guard.ico (see
+overlay_paths.ICON_FILE) when present.
 
 Runs unprivileged, as a normal user process. Never touches NVAPI/NVML/I2C directly -
 all data comes from status.json, written by the elevated guard process. This means a
@@ -25,7 +26,7 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from overlay_theme import bar_color, bar_fill_fraction
 from overlay_settings import SettingsPopup, DEFAULT_THRESHOLD_AMPS, DEFAULT_SUSTAINED_SECONDS_REQUIRED
-from overlay_paths import STATUS_PATH, POSITION_FILE, ICON_FILE
+from overlay_paths import STATUS_PATH, POSITION_FILE, ICON_FILE, DEFAULT_ICON_FILE
 
 POLL_INTERVAL_MS = 200          # overlay refresh rate (5 Hz is plenty for a bar chart)
 STALE_AFTER_SEC = 2.0           # guard writes every ~0.5s; 2s of silence = disconnected
@@ -122,11 +123,14 @@ class OverlayApp:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("12V Guard")
-        if os.path.isfile(ICON_FILE):
-            try:
-                self.root.iconbitmap(ICON_FILE)
-            except tk.TclError:
-                pass  # unreadable/invalid icon; keep the default Tk icon
+        # A personal icon overrides the shipped project icon.
+        for icon in (ICON_FILE, DEFAULT_ICON_FILE):
+            if os.path.isfile(icon):
+                try:
+                    self.root.iconbitmap(icon)
+                    break
+                except tk.TclError:
+                    pass  # unreadable/invalid icon; try the next one
         self.root.resizable(False, False)
         self.root.overrideredirect(False)
         self.root.attributes("-topmost", False)

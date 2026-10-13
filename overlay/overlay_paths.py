@@ -48,3 +48,6 @@ STATUS_PATH = os.path.join(SHARED_DIR, "status.json")
 POSITION_FILE = os.path.join(USER_DIR, "overlay_position.json")
 # Optional personal window icon; never shipped with the project or the installer.
 ICON_FILE = os.path.join(USER_DIR, "astral_guard.ico")
+# Project icon, shipped with the overlay; used when there is no personal icon.
+# PyInstaller unpacks bundled data under sys._MEIPASS.
+DEFAULT_ICON_FILE = os.path.join(getattr(sys, "_MEIPASS", _OVERLAY_DIR), "astral_guard_public.ico")

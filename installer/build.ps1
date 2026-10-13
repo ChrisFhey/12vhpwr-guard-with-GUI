@@ -93,8 +93,10 @@ $pyzToc = Get-Content (Join-Path $WorkDir "overlay\PYZ-00.toc") -Raw
 foreach ($m in "overlay_paths", "overlay_settings", "overlay_theme", "overlay_app") {
     if ($pyzToc -notmatch "'$m'") { throw "Overlay bundle is missing module '$m'." }
 }
-$icons = @(Get-ChildItem $DistDir -Recurse -Filter "*.ico" -ErrorAction SilentlyContinue)
-if ($icons) { throw "Icon files found in the bundle (artwork must not ship): $($icons.FullName -join ', ')" }
+# Only the public project icon may ship; never the personal astral_guard.ico.
+$icons = @(Get-ChildItem $DistDir -Recurse -Filter "*.ico" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne "astral_guard_public.ico" })
+if ($icons) { throw "Unexpected icon files in the bundle: $($icons.FullName -join ', ')" }
 
 if ($SkipInstaller) { Step "Done (installer skipped): $DistDir"; exit 0 }
 

@@ -21,7 +21,8 @@ Output: `installer\Output\12VHPWR-Guard-Setup-<version>.exe`. Useful options:
 - `-Version 1.4.0` - override the `VERSION` file.
 
 The build fails if a guard protection module (`gpu_mitigation`, `astral_i2c`, ...)
-is missing from the bundle, or if any `.ico` file ends up in it.
+is missing from the bundle, or if any icon other than `overlay/astral_guard_public.ico`
+(the app, setup and overlay window icon) ends up in it.
 
 ## What the installer does
 

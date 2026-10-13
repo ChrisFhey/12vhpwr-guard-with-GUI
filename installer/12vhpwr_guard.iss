@@ -40,6 +40,7 @@ OutputBaseFilename=12VHPWR-Guard-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\overlay\astral_guard_public.ico
 ; Running processes are stopped by setup_helper.ps1, not Restart Manager.
 CloseApplications=no
 RestartApplications=no
